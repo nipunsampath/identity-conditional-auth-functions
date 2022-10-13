@@ -39,9 +39,11 @@ import org.wso2.carbon.identity.core.util.IdentityTenantUtil;
 import org.wso2.carbon.identity.core.util.IdentityUtil;
 
 import java.io.IOException;
+import java.net.http.HttpClient;
 import java.security.KeyManagementException;
 import java.security.KeyStoreException;
 import java.security.NoSuchAlgorithmException;
+import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
 import javax.net.ssl.SSLContext;
@@ -90,6 +92,12 @@ public class ClientManager {
         return client;
     }
 
+    public HttpClient getSynchronousClient(String tenantDomain) throws IOException {
+        HttpClient.Builder builder = HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(HTTP_CONNECTION_TIMEOUT));
+        addSslContext(builder, tenantDomain);
+        return builder.build();
+    }
     private RequestConfig createRequestConfig() {
 
         return RequestConfig.custom()
@@ -158,6 +166,21 @@ public class ClientManager {
             builder.setHostnameVerifier(hostnameVerifier);
 
         } catch (NoSuchAlgorithmException | KeyStoreException | KeyManagementException e) {
+            LOG.error("Error while creating ssl context for Choreo endpoint invocation in tenant domain: " +
+                    tenantDomain, e);
+            throw new IOException("Error while creating ssl context for Choreo endpoint invocation in tenant " +
+                    "domain: " + tenantDomain, e);
+        }
+    }
+
+    private void addSslContext(HttpClient.Builder builder, String tenantDomain) throws IOException {
+
+        try {
+            SSLContext sslContext = SSLContexts.custom()
+                    .loadTrustMaterial(ChoreoFunctionServiceHolder.getInstance().getTrustStore())
+                    .build();
+            builder.sslContext(sslContext);
+        } catch (NoSuchAlgorithmException | KeyManagementException | KeyStoreException e) {
             LOG.error("Error while creating ssl context for Choreo endpoint invocation in tenant domain: " +
                     tenantDomain, e);
             throw new IOException("Error while creating ssl context for Choreo endpoint invocation in tenant " +

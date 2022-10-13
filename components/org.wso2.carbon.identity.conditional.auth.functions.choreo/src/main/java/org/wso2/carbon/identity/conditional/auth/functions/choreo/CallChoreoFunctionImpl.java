@@ -50,6 +50,8 @@ import java.io.UnsupportedEncodingException;
 import java.net.SocketTimeoutException;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
 import java.util.Base64;
 import java.util.Collections;
 import java.util.HashMap;
@@ -101,84 +103,11 @@ public class CallChoreoFunctionImpl implements CallChoreoFunction {
                     return;
                 }
                 String accessToken = retrieveAccessToken(authenticationContext);
-                if(StringUtils.isEmpty(accessToken)) {
+                if (StringUtils.isEmpty(accessToken)) {
                     LOG.info("Requesting the access token from Choreo");
-                    requestAccessToken(authenticationContext.getTenantDomain(), connectionMetaData, new FutureCallback<HttpResponse>() {
-                        @Override
-                        public void completed(HttpResponse httpResponse) {
-
-                            boolean isFailure = false;
-                            try {
-                                int responseCode = httpResponse.getStatusLine().getStatusCode();
-                                if (responseCode == 200) {
-                                    Gson gson = new GsonBuilder().create();
-                                    Map<String, String> responseBody = gson.fromJson(EntityUtils.toString(httpResponse.getEntity()), HashMap.class);
-                                    String accessToken = responseBody.get(ACCESS_TOKEN_KEY);
-                                    storeAccessToken(ACCESS_TOKEN_KEY, accessToken);
-                                    callChoreoEndpoint(epUrl, asyncReturn, authenticationContext, payloadData, accessToken);
-                                } else {
-                                    LOG.error("Failed to retrieve access token from Choreo. Response Code: " + responseCode +
-                                            ". Session data key: " + authenticationContext.getContextIdentifier()
-                                    );
-                                    isFailure = true;
-                                }
-                            } catch (IOException e) {
-                                LOG.error("Failed to parse access token response to string. Session data key: " +
-                                        authenticationContext.getContextIdentifier(), e
-                                );
-                                isFailure = true;
-                            } catch (Exception e) {
-                                LOG.error("Error occurred while handling the token response from Choreo. Session data key: " +
-                                        authenticationContext.getContextIdentifier(), e
-                                );
-                                isFailure = true;
-                            }
-
-                            if (isFailure) {
-                                try {
-                                    asyncReturn.accept(authenticationContext, Collections.emptyMap(), OUTCOME_FAIL);
-                                } catch (Exception e) {
-                                    LOG.error("Error while trying to return after handling the token request failure from Choreo. " +
-                                            "Session data key: " + authenticationContext.getContextIdentifier(), e
-                                    );
-                                }
-                            }
-                        }
-
-                        @Override
-                        public void failed(Exception e) {
-
-                            LOG.error("Failed to request access token from Choreo for the session data key: " +
-                                    authenticationContext.getContextIdentifier(), e
-                            );
-                            try {
-                                String outcome = OUTCOME_FAIL;
-                                if ((e instanceof SocketTimeoutException) || (e instanceof ConnectTimeoutException)) {
-                                    outcome = OUTCOME_TIMEOUT;
-                                }
-                                asyncReturn.accept(authenticationContext, Collections.emptyMap(), outcome);
-                            } catch (Exception ex) {
-                                LOG.error("Error while proceeding after failing to request access token for the session data key: " +
-                                        authenticationContext.getContextIdentifier(), e
-                                );
-                            }
-                        }
-
-                        @Override
-                        public void cancelled() {
-
-                            LOG.error("Requesting access token from Choreo for the session data key: " +
-                                    authenticationContext.getContextIdentifier() + " is cancelled."
-                            );
-                            try {
-                                asyncReturn.accept(authenticationContext, Collections.emptyMap(), OUTCOME_FAIL);
-                            } catch (Exception e) {
-                                LOG.error("Error while proceeding after access token request to Choreo got cancelled " +
-                                        "for session data key: " + authenticationContext.getContextIdentifier(), e
-                                );
-                            }
-                        }
-                    });
+                    accessToken = requestAccessToken(authenticationContext, authenticationContext.getTenantDomain(), connectionMetaData);
+                    storeAccessToken(ACCESS_TOKEN_KEY, accessToken);
+                    callChoreoEndpoint(epUrl, asyncReturn, authenticationContext, payloadData, accessToken);
                 } else {
                     callChoreoEndpoint(epUrl, asyncReturn, authenticationContext, payloadData, accessToken);
                 }
@@ -217,7 +146,7 @@ public class CallChoreoFunctionImpl implements CallChoreoFunction {
         String accessToken;
         try {
             accessToken = getResolvedSecret(ACCESS_TOKEN_KEY);
-        } catch (SecretManagementException e){
+        } catch (SecretManagementException e) {
             accessToken = "";
             LOG.info("Could not retrieve access token for session data key: " + authContext.getContextIdentifier());
         }
@@ -285,12 +214,7 @@ public class CallChoreoFunctionImpl implements CallChoreoFunction {
         return parentDomain;
     }
 
-    private void requestAccessToken(String tenantDomain, Map<String, String> connectionMetaData, FutureCallback<HttpResponse> futureCallback)
-            throws SecretManagementException, IOException, FrameworkException {
-
-        HttpPost request = new HttpPost(ConfigProvider.getInstance().getChoreoTokenEndpoint());
-        request.setHeader(ACCEPT, TYPE_APPLICATION_JSON);
-        request.setHeader(CONTENT_TYPE, TYPE_APPLICATION_JSON);
+    private String requestAccessToken(AuthenticationContext authenticationContext, String tenantDomain, Map<String, String> connectionMetaData) throws SecretManagementException, IOException, URISyntaxException, InterruptedException {
 
         String consumerKey;
         if (StringUtils.isNotEmpty(connectionMetaData.get(CONSUMER_KEY_VARIABLE_NAME))) {
@@ -308,17 +232,38 @@ public class CallChoreoFunctionImpl implements CallChoreoFunction {
             consumerSecret = getResolvedSecret(consumerSecretAlias);
         }
 
-        request.setHeader(AUTHORIZATION, BASIC + Base64.getEncoder().encodeToString((consumerKey + ":" + consumerSecret).getBytes()));
-
         JSONObject jsonObject = new JSONObject();
         jsonObject.put(GRANT_TYPE, GRANT_TYPE_CLIENT_CREDENTIALS);
-        request.setEntity(new StringEntity(jsonObject.toJSONString()));
+        HttpRequest request = HttpRequest.newBuilder(new URI(ConfigProvider.getInstance().getChoreoTokenEndpoint()))
+                .header(ACCEPT, TYPE_APPLICATION_JSON)
+                .header(CONTENT_TYPE, TYPE_APPLICATION_JSON)
+                .header(AUTHORIZATION, BASIC + Base64.getEncoder().encodeToString((consumerKey + ":" + consumerSecret).getBytes()))
+                .POST(HttpRequest.BodyPublishers.ofString(jsonObject.toJSONString()))
+                .build();
 
-        CloseableHttpAsyncClient client = ChoreoFunctionServiceHolder.getInstance().getClientManager().getClient(tenantDomain);
-        client.execute(request, futureCallback);
+        HttpClient client = ChoreoFunctionServiceHolder.getInstance().getClientManager().getSynchronousClient(tenantDomain);
+
+        java.net.http.HttpResponse<String> response = client.send(request, java.net.http.HttpResponse.BodyHandlers.ofString());
+
+        int responseCode = response.statusCode();
+        if (responseCode == 200) {
+            Gson gson = new GsonBuilder().create();
+            Map<String, String> responseBody = gson.fromJson(response.body(), HashMap.class);
+            String accessToken = responseBody.get(ACCESS_TOKEN_KEY);
+            return accessToken;
+//            storeAccessToken(ACCESS_TOKEN_KEY, accessToken);
+        } else {
+            LOG.error("Failed to retrieve access token from Choreo. Response Code: " + responseCode +
+                    ". Session data key: " + authenticationContext.getContextIdentifier()
+            );
+            throw new RuntimeException("Token not found");
+        }
+
     }
 
-    private void callChoreoEndpoint(String endpointUrl, AsyncReturn asyncReturn, AuthenticationContext authenticationContext,
+
+    private void callChoreoEndpoint(String endpointUrl, AsyncReturn asyncReturn, AuthenticationContext
+            authenticationContext,
                                     Map<String, Object> payloadData, String accessToken) {
 
         boolean isFailure = false;
