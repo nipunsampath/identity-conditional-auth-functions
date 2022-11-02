@@ -148,7 +148,7 @@ public class CallChoreoFunctionImplTest extends JsSequenceHandlerAbstractTest {
         };
     }
 
-    @Test(dataProvider = "choreoEpValidity")
+    @Test(dataProvider = "choreoEpValidity", groups= "a")
     public void testCallChoreoDomainValidity(boolean isValidChoreoDomain) throws JsTestException,
             NoSuchFieldException, IllegalAccessException {
 
@@ -176,7 +176,7 @@ public class CallChoreoFunctionImplTest extends JsSequenceHandlerAbstractTest {
         }
     }
 
-    @Test
+    @Test(groups = "a")
     public void testCallChoreUnsuccessfulTokenResponse() throws JsTestException,
             NoSuchFieldException, IllegalAccessException {
 
@@ -193,7 +193,7 @@ public class CallChoreoFunctionImplTest extends JsSequenceHandlerAbstractTest {
         assertEquals(context.getSelectedAcr(), FAILED, "Expected the request to fail");
     }
 
-    @Test
+    @Test(groups = "a")
     public void testCallChoreoExpiredTokenInCache()
             throws JsTestException, NoSuchFieldException, IllegalAccessException, JOSEException {
 
@@ -214,7 +214,7 @@ public class CallChoreoFunctionImplTest extends JsSequenceHandlerAbstractTest {
 
     }
 
-    @Test
+    @Test(groups = "a")
     public void testCallChoreTokenExpireOnce() throws JsTestException, NoSuchFieldException, IllegalAccessException {
 
         LOG.info("===== Testing callChoreo token expire once");
@@ -231,7 +231,7 @@ public class CallChoreoFunctionImplTest extends JsSequenceHandlerAbstractTest {
 
     }
 
-    @Test
+    @Test(groups = "a")
     public void testCallChoreTokenExpireAlways() throws JsTestException, NoSuchFieldException, IllegalAccessException {
 
         LOG.info("===== Testing callChoreo token expire always");
@@ -247,7 +247,7 @@ public class CallChoreoFunctionImplTest extends JsSequenceHandlerAbstractTest {
         assertEquals(context.getSelectedAcr(), FAILED, "Expected the request to fail");
     }
 
-    @Test
+    @Test(dependsOnGroups = "a")
     public void testCallChoreCachingToken() throws JsTestException, NoSuchFieldException, IllegalAccessException {
 
         LOG.info("===== Testing caching token");
